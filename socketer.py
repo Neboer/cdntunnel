@@ -8,39 +8,21 @@ from typing import Union
 import select
 
 
-class ServerPacketSender(Thread):
-    def __init__(self, packet_thread_queue, server_socket):  # type: (Queue, socket) -> None
+class PacketSender(Thread):
+    def __init__(self, packet_thread_queue, c_or_s_socket):  # type: (Queue, socket) -> None
         super().__init__()
         self.packet_thread_queue = packet_thread_queue
-        self.socket = server_socket
+        self.socket = c_or_s_socket
 
     def run(self) -> None:
         while True:
             download_parse_future = self.packet_thread_queue.get()  # type: Union[Future, bytes]
-            data_from_client = b""
+            data_from_opposite = b""
             if type(download_parse_future) == Future:  # 如果队列里下来的是一个future对象，那么就需要等待他完成然后获得数据。
-                data_from_client = download_parse_future.result()
+                data_from_opposite = download_parse_future.result()
             else:  # 从队列里下来的是一个bytes对象，这个时候就把它发出去就可以了
-                data_from_client = download_parse_future
-            self.socket.send(data_from_client)
-
-
-class ClientPacketSender(Thread):
-    def __init__(self, packet_thread_queue, client_socket):  # type: (Queue, socket) -> None
-        super().__init__()
-        self.packet_thread_queue = packet_thread_queue
-        self.socket = client_socket
-
-    def run(self) -> None:
-        while True:
-            upload_future = self.packet_thread_queue.get()  # type: Union[Future, bytes]
-            data_from_server = b""
-            if type(upload_future) == Future:  # 队列里下来了一个future，只能等待这个上传完成，然后获得上传成功的url，编码发送。
-                data_from_server = upload_future.result()
-            else:  # 从队列里下来的是一个bytes对象，这个时候就把它发出去就可以了
-                data_from_server = upload_future
-            self.socket.send(data_from_server)
-
+                data_from_opposite = download_parse_future
+            self.socket.send(data_from_opposite)
 
 # 客户端数据报文格式：1字节的类型和最长999字节的数据、
 
@@ -50,9 +32,9 @@ def cdntunnel(client_socket: socket, server_socket: socket):
     executor = ThreadPoolExecutor(max_workers=3)
     packet_to_remote_server = Queue(maxsize=10)
     packet_to_local_client = Queue(maxsize=10)
-    ServerPacketSender(packet_to_remote_server, server_socket).start()
-    ClientPacketSender(packet_to_local_client, client_socket).start()
-    while True:  # 主循环，应该有一个select语句。
+    PacketSender(packet_to_remote_server, server_socket).start()
+    PacketSender(packet_to_local_client, client_socket).start()
+    while True:  # 主循环
         # 这里写select语句，然后决定是收到数据还是发出数据
         readable_socket, _, _ = select.select([client_socket, server_socket], [], [])
         if client_socket in readable_socket:  # 在这里选择。
@@ -67,9 +49,8 @@ def cdntunnel(client_socket: socket, server_socket: socket):
                 packet_to_remote_server.put(content)
         if server_socket in readable_socket:
             server_data = server_socket.recv(1024 * 1024)  # 从服务端收1M的数据。
-            if len(server_data) < 1000:
+            if len(server_data) < 1000:  # 对于小的数据，直接发送
                 packet_to_local_client.put(b'\1' + server_data)
-            else:
+            else:  # 较大块的数据，发送到cdn 
                 packet_to_local_client.put(executor.submit(encode_and_upload, server_data))
 
-    # 现在，client_data一定是客户端准备发送的字节了。
