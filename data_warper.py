@@ -30,7 +30,7 @@ def encode_and_upload(data):
     except requests.exceptions:
         raise NetworkError
     if upload_result['code'] == 0:
-        return upload_result['data'].encode('ascii')
+        return upload_result['data']
     else:
         raise NetworkError
         # return b"https://"  # 返回的是二进制编码的url。

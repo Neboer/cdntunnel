@@ -3,21 +3,28 @@ from client.socks5_server import subnegotiation, BUFSIZE, VER, ATYP_IPV4
 from socketer import cdntunnel
 import socket
 
-remote_addr, remote_port = "remote.top", 1234
+remote_addr, remote_port = "localhost", 8887
 
 
 class Socks5server(socketserver.BaseRequestHandler):
     def handle(self):
         cintro_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        cintro_server.send(b'\1\2\3\4')
+        try:
+            cintro_server.connect((remote_addr, remote_port))
+            cintro_server.send(b'\1\2\3\4')
+        except socket.error:
+            self.request.send(b"\1")
+            print("error connect to remote server")
+            self.request.close()
+            return
         self.request: socket.socket
         if subnegotiation(self.request):
             connection_request = self.request.recv(BUFSIZE)
-            cintro_server.send(connection_request[4:])
+            cintro_server.send(connection_request[3:])
             remote_result = cintro_server.recv(1)  # 关键的一位，判断连接是否成功。
             reply = VER + remote_result + b'\x00' + ATYP_IPV4 + bytes(6)
             self.request.send(reply)  # 已经发送了远端的结果，然后再判断是否断开连接
-            if remote_result:  # 连接失败
+            if remote_result != b'\0':  # 连接失败
                 self.request.close()
                 return
             else:  # 连接成功

@@ -12,7 +12,8 @@ class CintroMessage:
 
     @staticmethod
     def receive_from_socket(rec_socket: socket):
-        _, data_type, data_length = unpack('!BBB', rec_socket.recv(3))
+        header = rec_socket.recv(3)
+        _, data_type, data_length = unpack('!BBB', header)
         data = b''
         while len(data) < data_length:
             data += rec_socket.recv(data_length - len(data))

@@ -1,5 +1,5 @@
 # 当得知用户希望连接的目的地之后，server打开一个通往目的地的socket和客户端的socket。
-from socket import socket, CAN_ERR_FLAG
+from socket import socket
 from data_warper import get_and_decode, encode_and_upload
 from concurrent.futures import ThreadPoolExecutor, Future
 from threading import Thread, Lock
@@ -40,7 +40,7 @@ class PacketSender(Thread):
 
 def enc_upd_warper(data):
     url = encode_and_upload(data)
-    return CintroMessage(1, data).to_binary()
+    return CintroMessage(1, url.encode('ascii')).to_binary()
 
 
 # 客户端的每个包的大小均严格小于1kb。
@@ -50,12 +50,12 @@ def cdntunnel(cintro_socket: socket,
     packet_to_remote_server = Queue(maxsize=10)
     packet_to_local_client = Queue(maxsize=10)
     freedom_sender = PacketSender(packet_to_remote_server, freedom_socket)
-    cintro_socket = PacketSender(packet_to_local_client, cintro_socket)
+    cintro_sender = PacketSender(packet_to_local_client, cintro_socket)
     freedom_sender.start()
-    cintro_socket.start()
+    cintro_sender.start()
     while True:  # 主循环
         # 这里写select语句，然后决定是收到数据还是发出数据
-        if not freedom_sender.is_alive() or not cintro_socket.is_alive():
+        if not freedom_sender.is_alive() or not cintro_sender.is_alive():
             if freedom_sender.is_alive():
                 freedom_sender.close()
                 return
