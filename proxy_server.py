@@ -18,7 +18,7 @@ class MyTCPHandler(socketserver.BaseRequestHandler):
         remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             remote.connect((addr, port))
-        except socket.timeout or TimeoutError:
+        except TimeoutError:
             self.request.send(b'\1')  # 连接失败
             self.request.close()
             return

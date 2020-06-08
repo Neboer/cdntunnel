@@ -12,7 +12,12 @@ class CintroMessage:
 
     @staticmethod
     def receive_from_socket(rec_socket: socket):
-        header = rec_socket.recv(3)
+        try:
+            header = rec_socket.recv(3)
+        except ConnectionError:
+            return None
+        if len(header) == 0:
+            return None
         _, data_type, data_length = unpack('!BBB', header)
         data = b''
         while len(data) < data_length:

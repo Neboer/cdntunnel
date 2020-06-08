@@ -28,7 +28,7 @@ class PacketSender(Thread):
                 data_from_opposite = download_parse_future
             try:
                 self.socket.send(data_from_opposite)
-            except ConnectionAbortedError:  # 远端已经关闭了这个连接，那么，cdntunnel也应该结束自己的工作了，此时应该通知tunnel线程退出。
+            except:  # 远端已经关闭了这个连接，那么，cdntunnel也应该结束自己的工作了，此时应该通知tunnel线程退出。
                 return
         self.socket.close()  # 明确关闭自身的socket
         return  # 从容的退出战场。
@@ -47,12 +47,27 @@ def enc_upd_warper(data):
 def cdntunnel(cintro_socket: socket,
               freedom_socket: socket):  # freedom_socket就指的是来自远端等的正常数据，cintro_socket指的是需要以cintro协议通信的一方。
     executor = ThreadPoolExecutor(max_workers=3)
-    packet_to_remote_server = Queue(maxsize=10)
-    packet_to_local_client = Queue(maxsize=10)
-    freedom_sender = PacketSender(packet_to_remote_server, freedom_socket)
-    cintro_sender = PacketSender(packet_to_local_client, cintro_socket)
+    packet_to_freedom = Queue(maxsize=10)
+    packet_to_cintro = Queue(maxsize=10)
+    freedom_sender = PacketSender(packet_to_freedom, freedom_socket)
+    cintro_sender = PacketSender(packet_to_cintro, cintro_socket)
     freedom_sender.start()
     cintro_sender.start()
+
+    # 确保可以从socket_to_read里读到信息并返回。如果socket并不返回任何数据或者出现连接异常，则断开所有的连接。
+    def promise_receive(socket_to_read, size):
+        try:
+            temp = socket_to_read.recv(size)
+        except ConnectionError:
+            freedom_sender.close()
+            cintro_sender.close()
+            return
+        if len(temp) == 0:
+            freedom_sender.close()
+            cintro_sender.close()
+            return
+        return temp
+
     while True:  # 主循环
         # 这里写select语句，然后决定是收到数据还是发出数据
         if not freedom_sender.is_alive() or not cintro_sender.is_alive():
@@ -65,12 +80,16 @@ def cdntunnel(cintro_socket: socket,
         readable_socket, _, _ = select([cintro_socket, freedom_socket], [], [])
         if cintro_socket in readable_socket:  # 客户端发来数据，看来好时代要到来力！
             client_data = CintroMessage.receive_from_socket(cintro_socket)
+            if not client_data:
+                freedom_sender.close()
+                cintro_sender.close()
+                return
             if client_data.data_type == 1:  # 收到的是下载的地址。
                 url = client_data.data.decode('ascii')
-                packet_to_remote_server.put(executor.submit(get_and_decode, url))  # 将这个解码任务交到队列中
+                packet_to_freedom.put(executor.submit(get_and_decode, url))  # 将这个解码任务交到队列中
             else:
                 # 此时content本身就是要发给服务器的原始数据，这个时候要把要发送的东西直接塞到队列里，注意顺序！
-                packet_to_remote_server.put(client_data.data)
+                packet_to_freedom.put(client_data.data)
         if freedom_socket in readable_socket:
             sleep(0.02)  # 这个是一个高度可定制的功能。服务器在等待足够长的时间之后，再从远端拿取数据，目的是强行扩充缓冲的buffer大小。
             # 为了保证数据传输的顺序不混乱，这里并不引入异步功能。其实在这一点时间里，是可以继续收取客户端传来的数据的。关于多线程优化的问题，
@@ -78,10 +97,12 @@ def cdntunnel(cintro_socket: socket,
             # 如果客户端正在浏览网页，他就希望这个延迟小一些。因为ssl握手的过程中也会传输中体积大小的数据，因此这里有待于进一步讨论。
             # 值得一提的是，这两个client和remote的数据传输过程似乎可以直接多线程队列化，也就是说，来临连接的时候可以直接提交线程进行处理，
             # 同时释放GIL锁，让全局有更多的时间去select()。
-            server_data = freedom_socket.recv(1000000)  # 从服务端收最大1M的数据，这个地方存疑：
-            # ！！ 如何保证从服务端接收到足够多且有必要的量的数据？这个数据量如果太小，会极大的浪费带宽，这个可谓是“性能瓶颈”。而且针对底层这里应该
+            server_data = promise_receive(freedom_socket, 1000000)  # 从服务端收最大1M的数据，这个地方存疑：
+            if not server_data:
+                return
+                # ！！ 如何保证从服务端接收到足够多且有必要的量的数据？这个数据量如果太小，会极大的浪费带宽，这个可谓是“性能瓶颈”。而且针对底层这里应该
             # 做出更多优化！
             if len(server_data) < 256:  # 对于小的数据，直接发送
-                packet_to_local_client.put(CintroMessage(0, server_data).to_binary())
+                packet_to_cintro.put(CintroMessage(0, server_data).to_binary())
             else:  # 较大块的数据，发送到cdn
-                packet_to_local_client.put(executor.submit(enc_upd_warper, server_data))
+                packet_to_cintro.put(executor.submit(enc_upd_warper, server_data))
