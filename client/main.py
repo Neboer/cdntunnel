@@ -8,13 +8,14 @@ remote_addr, remote_port = "localhost", 8887
 
 class Socks5server(socketserver.BaseRequestHandler):
     def handle(self):
+        print('connection', flush=True)
         cintro_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             cintro_server.connect((remote_addr, remote_port))
             cintro_server.send(b'\1\2\3\4')
         except socket.error:
             self.request.send(b"\1")
-            print("error connect to remote server")
+            print("error connect to remote server", flush=True)
             self.request.close()
             return
         self.request: socket.socket
@@ -28,6 +29,7 @@ class Socks5server(socketserver.BaseRequestHandler):
                 self.request.close()
                 return
             else:  # 连接成功
+                print("remote connected!", flush=True)
                 cdntunnel(cintro_server, self.request)
                 return
 
@@ -36,7 +38,7 @@ if __name__ == "__main__":
     HOST, PORT = "localhost", 9999
 
     # Create the server, binding to localhost on port 9999
-    with socketserver.TCPServer((HOST, PORT), Socks5server) as server:
+    with socketserver.ThreadingTCPServer((HOST, PORT), Socks5server) as server:
         # Activate the server; this will keep running until you
         # interrupt the program with Ctrl-C
         server.serve_forever()

@@ -17,7 +17,6 @@ def get_and_decode(url):
     try:
         picture_content = requests.get(url).content
         data = encoder.decode_png(picture_content)
-        print(str(len(data)) + " ")
     except UnidentifiedImageError:
         with open('temp.png', "w") as tempfile:
             tempfile.write(data)
