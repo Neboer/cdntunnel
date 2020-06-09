@@ -27,6 +27,9 @@ class PacketSender(Thread):
             else:  # 从队列里下来的是一个bytes对象，这个时候就把它发出去就可以了
                 data_from_opposite = download_parse_future
             try:
+                if not data_from_opposite:
+                    self.socket.close()  # 数据是空的，那么断开连接吧。
+                    return
                 self.socket.send(data_from_opposite)
             except:  # 远端已经关闭了这个连接，那么，cdntunnel也应该结束自己的工作了，此时应该通知tunnel线程退出。
                 return
@@ -40,6 +43,9 @@ class PacketSender(Thread):
 
 def enc_upd_warper(data):
     url = encode_and_upload(data)
+    if not url:
+        # 上传最终失败
+        return None
     return CintroMessage(1, url.encode('ascii')).to_binary()
 
 
